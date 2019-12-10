@@ -1,3 +1,7 @@
+plugins {
+    id 'groovy'
+}
+
 description = "Apereo CAS Core Logging AWS CloudWatch"
 dependencies {
     api project(":api:cas-server-core-api-ticket")
@@ -7,9 +11,12 @@ dependencies {
 
     implementation project(":core:cas-server-core-web-api")
     implementation project(":core:cas-server-core-util-api")
+    implementation project(":core:cas-server-core-logging-api")
     implementation project(":support:cas-server-support-aws")
-    
-    compileOnly project(":core:cas-server-core-logging-api")
+
+    annotationProcessor libraries.log4j
+
+    testImplementation libraries.groovy
 }
 
 
