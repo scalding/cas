@@ -63,6 +63,8 @@ public class CloudWatchAppender extends AbstractAppender {
     private AWSLogs awsLogsClient;
     private volatile boolean queueFull;
 
+    private boolean createIfNeeded;
+
     public CloudWatchAppender(final String name,
                               final String awsLogGroupName,
                               final String awsLogStreamName,
@@ -70,7 +72,8 @@ public class CloudWatchAppender extends AbstractAppender {
                               final String credentialAccessKey,
                               final String credentialSecretKey,
                               final String awsLogRegionName,
-                              final Layout<Serializable> layout) {
+                              final Layout<Serializable> layout,
+                              final boolean createIfNeeded) {
         super(name, null, layout == null ? PatternLayout.createDefaultLayout() : layout, false);
         try {
             var flushPeriod = AWS_LOG_STREAM_FLUSH_PERIOD_IN_SECONDS;
@@ -87,6 +90,7 @@ public class CloudWatchAppender extends AbstractAppender {
             this.awsLogsClient = builder.build();
             this.logGroupName = awsLogGroupName;
             this.logStreamName = awsLogStreamName;
+            this.createIfNeeded = createIfNeeded;
             this.sequenceTokenCache = createLogGroupAndLogStreamIfNeeded();
         } catch (final Exception e) {
             LOGGER.error(e.getMessage(), e);
@@ -114,7 +118,8 @@ public class CloudWatchAppender extends AbstractAppender {
                                                     @PluginAttribute("credentialAccessKey") final String credentialAccessKey,
                                                     @PluginAttribute("credentialSecretKey") final String credentialSecretKey,
                                                     @PluginAttribute("awsLogRegionName") final String awsLogRegionName,
-                                                    @PluginElement("Layout") final Layout<Serializable> layout) {
+                                                    @PluginElement("Layout") final Layout<Serializable> layout,
+                                                    @PluginAttribute(value = "createIfNeeded", defaultBoolean = true) final boolean createIfNeeded) {
         return new CloudWatchAppender(
             name,
             awsLogGroupName,
@@ -123,7 +128,8 @@ public class CloudWatchAppender extends AbstractAppender {
             StringUtils.defaultIfBlank(credentialAccessKey, System.getProperty("AWS_ACCESS_KEY")),
             StringUtils.defaultIfBlank(credentialSecretKey, System.getProperty("AWS_SECRET_KEY")),
             StringUtils.defaultIfBlank(awsLogRegionName, System.getProperty("AWS_REGION_NAME")),
-            layout);
+            layout,
+            createIfNeeded);
     }
 
     private void flush() {
@@ -176,18 +182,21 @@ public class CloudWatchAppender extends AbstractAppender {
     }
 
     private String createLogGroupAndLogStreamIfNeeded() {
-        LOGGER.debug("Attempting to locate the log group [{}]", logGroupName);
-        val describeLogGroupsResult =
-            awsLogsClient.describeLogGroups(new DescribeLogGroupsRequest().withLogGroupNamePrefix(logGroupName));
-        var createLogGroup = true;
-        if (describeLogGroupsResult != null && describeLogGroupsResult.getLogGroups() != null && !describeLogGroupsResult.getLogGroups().isEmpty()) {
-            createLogGroup = describeLogGroupsResult.getLogGroups().stream().noneMatch(g -> g.getLogGroupName().equals(logGroupName));
+        if (this.createIfNeeded) {
+            LOGGER.debug("Attempting to locate the log group [{}]", logGroupName);
+            val describeLogGroupsResult =
+                    awsLogsClient.describeLogGroups(new DescribeLogGroupsRequest().withLogGroupNamePrefix(logGroupName));
+            var createLogGroup = true;
+            if (describeLogGroupsResult != null && describeLogGroupsResult.getLogGroups() != null && !describeLogGroupsResult.getLogGroups().isEmpty()) {
+                createLogGroup = describeLogGroupsResult.getLogGroups().stream().noneMatch(g -> g.getLogGroupName().equals(logGroupName));
+            }
+            if (createLogGroup) {
+                LOGGER.debug("Creating log group [{}]", logGroupName);
+                val createLogGroupRequest = new CreateLogGroupRequest(logGroupName);
+                awsLogsClient.createLogGroup(createLogGroupRequest);
+            }
         }
-        if (createLogGroup) {
-            LOGGER.debug("Creating log group [{}]", logGroupName);
-            val createLogGroupRequest = new CreateLogGroupRequest(logGroupName);
-            awsLogsClient.createLogGroup(createLogGroupRequest);
-        }
+
         var logSequenceToken = StringUtils.EMPTY;
         var createLogStream = true;
         LOGGER.debug("Attempting to locate the log stream [{}] for group [{}]", logStreamName, logGroupName);
@@ -205,9 +214,9 @@ public class CloudWatchAppender extends AbstractAppender {
         }
 
         if (createLogStream) {
-            LOGGER.debug("Creating log stream [{}] for group [{}]", logStreamName, logGroupName);
-            val createLogStreamRequest = new CreateLogStreamRequest(logGroupName, logStreamName);
-            awsLogsClient.createLogStream(createLogStreamRequest);
+                LOGGER.debug("Creating log stream [{}] for group [{}]", logStreamName, logGroupName);
+                val createLogStreamRequest = new CreateLogStreamRequest(logGroupName, logStreamName);
+                awsLogsClient.createLogStream(createLogStreamRequest);
         }
         return logSequenceToken;
     }
