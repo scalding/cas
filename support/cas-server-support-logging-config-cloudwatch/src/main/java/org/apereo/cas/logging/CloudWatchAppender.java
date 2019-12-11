@@ -151,7 +151,9 @@ public class CloudWatchAppender extends AbstractAppender {
 
             lastReportedTimestamp = logEvents.get(logEvents.size() - 1).getTimestamp();
             val putLogEventsRequest = new PutLogEventsRequest(logGroupName, logStreamName, logEvents);
-            putLogEventsRequest.setSequenceToken(sequenceTokenCache);
+            if (StringUtils.isNotEmpty(this.sequenceTokenCache)) {
+                putLogEventsRequest.setSequenceToken(sequenceTokenCache);
+            }
             try {
                 val putLogEventsResult = awsLogsClient.putLogEvents(putLogEventsRequest);
                 sequenceTokenCache = putLogEventsResult.getNextSequenceToken();
